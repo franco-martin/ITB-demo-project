@@ -23,6 +23,8 @@ The following dependencies are required to run the project:
 - `version.txt`: the release you have installed
 
 ## Installing the software for the first time
+> **Using an AI coding agent?** Unzip the release into your repository (steps 1–2), then ask the agent to *"set up this repository for GitHub"* or *"set up this repository for GitLab"*. `AGENTS.md` walks it through the rest: the virtual environment, `.env`, the CI files and your first root image. It asks you for anything it can't work out, like which base image to start from, and doesn't commit anything.
+
 1) Download the zip file called "InstallationFile" from the [Releases Page](https://gitlab.com/franco-martin/image-tree-builder/-/releases)
 2) Unzip the project into a folder. We recommend using a git repository
 3) Create a virtual environment and install the dependencies:
@@ -66,7 +68,7 @@ Images that still have a `Dockerfile` keep working; nothing needs renaming. New 
 1) Clone the git repository to your local computer
 2) Download an unzip the latest stable release into the git repository
 3) Add all the files and commit them to the repository. So if anything goes wrong after this step, we can undo all changes
-4) Follow the steps in "Installing the software for the first time" to configure `.env` and create your first root image.
+4) Follow the steps in "Installing the software for the first time" to configure `.env` and create your first root image, and copy the CI files from `examples/` (see [GitLab setup](#gitlab-setup) and [GitHub setup](#github-setup)). With an AI coding agent, ask it to *"set up this repository for GitHub"* (or GitLab) instead.
 5) Commit the changes and push to main.
 6) Protect your main branch.
 
@@ -151,6 +153,8 @@ See [`examples/gitlab/.gitlab-ci.yml`](examples/gitlab/.gitlab-ci.yml) for the p
 Only non-empty stages are written, and they're always contiguous starting at 0, so a workflow can skip a stage job whose output is empty. An empty plan writes only `stages=0`.
 
 See [`examples/github/build-images.yml`](examples/github/build-images.yml) for a workflow with a build job and a manifest job per stage. It builds with kaniko, runs arm64 builds on `ubuntu-24.04-arm`, and merges platforms with `docker buildx imagetools create`. The [GitHub demo project](https://github.com/franco-martin/ITB-demo-project) runs this setup.
+
+The workflow sets the registry to `ghcr.io/<owner>/<repo>`, lowercased, because image references can't contain uppercase letters. Set `IMAGETREE_REGISTRY` in your `.env` to the same lowercase value, since it's written into your images' `FROM` lines.
 
 ## Multi-platform images
 By default every image is built once, for the platform of the machine that builds it. To build for several platforms:

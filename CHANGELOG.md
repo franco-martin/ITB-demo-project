@@ -21,8 +21,8 @@
 - Bearer-token registry auth and pagination.
 - Private registry credentials: auth files, helpers and the CA setting.
 - `Containerfile` support. New images get a `Containerfile`; an image without one is still built from its `Dockerfile`, and when an image has both, the `Containerfile` wins.
-- `examples/` for GitLab and GitHub, building with kaniko (`ghcr.io/osscontainertools/kaniko:v1.28.5`), and `docs/private-registries.md`.
-- `AGENTS.md` with instructions for AI coding agents.
+- `examples/` for GitLab and GitHub, building with kaniko (`ghcr.io/osscontainertools/kaniko:v1.28.5`), and `docs/private-registries.md`. The GitHub example lowercases its `ghcr.io/<owner>/<repo>` registry.
+- `AGENTS.md` with instructions for AI coding agents, including setting up a repository for GitHub or GitLab ("set up this repository for GitHub").
 
 ### Fixed
 

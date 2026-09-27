@@ -27,6 +27,7 @@ An image's **path** is its position in the tree, like `ubuntu/python`. **Root im
 | Tree with the planned images highlighted, for a merge request | `python3 ./plan.py && python3 ./list.py --plan plan.json --markdown` | Paste the output into the merge request |
 | Check the README tree | `python3 ./list.py --check --update-file` | Exit 0 means it's current |
 | Regenerate the README tree | `python3 ./list.py --update-file` | Only needed after edits no script makes, like a root's `FROM` |
+| Set up the repository for GitHub or GitLab | See [Setting up the repository](#setting-up-the-repository-for-github-or-gitlab) | Creates `.env`, the CI files and the first root image |
 | Preview the GitLab child pipeline | `python3 ./plan.py --all && python3 ./pipeline.py -f gitlab` | Prints the pipeline CI would run |
 
 ```sh
@@ -50,7 +51,7 @@ for root in $(grep -E '^[^ #][^:]*:' index.yml | cut -d: -f1); do python3 ./bump
 | `images/<path>/context/` | The build context for that image | You, for image changes |
 | `index.yml` | The tree: every image's parent, version and description | Only through the scripts below |
 | `README.md` | Project docs; the image tree sits between `<!-- image-tree:start -->` and `<!-- image-tree:end -->` | You, outside the markers; `list.py` inside them |
-| `.env` | Registry settings and credentials, loaded by every script | The maintainer. Never commit it or print it |
+| `.env` | Registry settings and credentials, loaded by every script | The maintainer. You create it only during [setup](#setting-up-the-repository-for-github-or-gitlab), when it doesn't exist. Never commit it or print it |
 | `.gitlab-ci.yml`, `.gitlab/`, `.github/workflows/` | CI that plans and builds the images | You, when asked |
 | `*.py`, `requirements.txt`, `sample-envs`, `examples/`, `docs/`, `CHANGELOG.md`, `version.txt`, `AGENTS.md` | The image tree builder release | Nobody. Updating the release replaces these files, so edits are lost. Report bugs instead |
 
@@ -112,6 +113,36 @@ Short forms: `-f` is `--from` in `createroot.py` and `--format` in `list.py`/`pi
 5. Show the maintainer the diff and the plan. Don't commit or push unless they asked you to.
 
 To add an image, follow [Creating a new image](#creating-a-new-image). To remove one, use `delete.py -t <path>`, then steps 3–5.
+
+## Setting up the repository for GitHub or GitLab
+
+Follow this when asked to "set up for GitHub" or "set up for GitLab", usually right after the release was unzipped into the repository. If the request doesn't say which, use the host in `git remote get-url origin` (`github.com` is GitHub; anything else is GitLab), and say so in your reply.
+
+1. **Python.** Check that `python3 --version` is 3.11 or newer. If there's no `venv/`, create one with a 3.11+ interpreter (`python3.11 -m venv venv`, or whichever `python3.1x` exists) and run `venv/bin/python -m pip install -r requirements.txt`. An older Python fails with `SyntaxError` on `match`.
+2. **Work out the registry.** It's the lowercased project path on the host's registry, and it must match what CI uses exactly, because it's written into the `FROM` line of every child image:
+   - GitHub: `ghcr.io/<owner>/<repo>`, all lowercase (`franco-martin/ITB-demo-project` becomes `ghcr.io/franco-martin/itb-demo-project`). The example workflow lowercases it the same way.
+   - GitLab.com: `registry.gitlab.com/<group>/<project>`, all lowercase, the same as `$CI_REGISTRY_IMAGE`.
+   - Self-hosted GitLab or any other registry: ask the maintainer. The registry host often differs from the web host.
+3. **Create `.env`.** If it doesn't exist, copy `sample-envs` to `.env` and set `IMAGETREE_REGISTRY` to the value from step 2. If it exists, check it with `grep -c '^IMAGETREE_REGISTRY=' .env` and, if the value might be wrong, ask the maintainer rather than reading or overwriting it. Never write credentials into `.env`; CI uses its own token and `plan.py --all` works without one.
+4. **Link base.** If `origin` is an SSH alias from `~/.ssh/config`, a self-hosted GitLab whose SSH host differs from its web url, or GitHub Enterprise, ask the maintainer for the url files are browsed at and set `IMAGETREE_LINK_BASE` in `.env`. See `README.md`, "`--link-base` and absolute urls".
+5. **Copy the CI files.** Don't overwrite an existing CI file: if one exists, merge the jobs into it and show the maintainer the result.
+   - GitHub: `examples/github/build-images.yml` to `.github/workflows/build-images.yml`.
+   - GitLab: `examples/gitlab/.gitlab-ci.yml` to `.gitlab-ci.yml`, and `examples/gitlab/imagetree-pipeline.yml` to `.gitlab/imagetree-pipeline.yml`.
+
+   Use them as they are unless the registry isn't the host's own (step 2): then change the registry in the plan job and the build jobs' login, following `docs/private-registries.md`.
+6. **README markers.** `README.md` must contain the `<!-- image-tree:start -->` and `<!-- image-tree:end -->` lines, or the tree is never written and CI's README check fails. The release `README.md` has them. If the maintainer kept their own README, add the two lines where the tree should go.
+7. **First root image.** CI fails until the tree has at least one image: `plan.py` and `list.py --check` both fail on an empty `index.yml`. If `index.yml` is missing or empty, create a root image as in [Creating a new image](#creating-a-new-image). Use the base image the maintainer asked for. If they didn't name one, ask; don't pick one yourself.
+8. **Check.**
+   - `python3 ./list.py --check --update-file` exits 0.
+   - `python3 ./plan.py --all` lists the root image.
+   - `python3 ./pipeline.py -f github` (or `-f gitlab`) runs without errors.
+   - `git status` shows no `.env`.
+9. **Hand over.** Show the maintainer the files you added and the plan, and don't commit or push unless asked. Tell them what's left for them, since you can't do it from the repository:
+   - Images are only built on pushes to the default branch; merge/pull requests only plan.
+   - GitHub: the workflow pushes to ghcr.io with the built-in `GITHUB_TOKEN`. If a package with that name already exists and isn't linked to this repository, give the repository write access in the package settings.
+   - GitLab: the project's container registry must be enabled (Settings > General > Visibility, project features).
+   - Multi-platform images need a runner per architecture. See `README.md`, "Multi-platform images".
+   - Protect the default branch.
 
 ## Rules
 

@@ -67,12 +67,15 @@ jobs:
       - name: plan
         id: plan
         env:
-          IMAGETREE_REGISTRY: ghcr.io/${{ github.repository }}
           IMAGETREE_REGISTRY_USERNAME: ${{ github.actor }}
           IMAGETREE_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         # bash with pipefail, so a failing plan.py isn't hidden by tee
         shell: bash
         run: |
+          # ghcr.io/<owner>/<repo>, lowercased: image references can't have
+          # uppercase letters, but GitHub owner and repository names can.
+          # Your .env must set the same IMAGETREE_REGISTRY.
+          export IMAGETREE_REGISTRY="ghcr.io/${GITHUB_REPOSITORY,,}"
           python3 plan.py | tee plan.txt
           python3 pipeline.py -f github >> "$GITHUB_OUTPUT"
       # Uncomment to check tags in Amazon ECR instead of ghcr.io, replacing the
