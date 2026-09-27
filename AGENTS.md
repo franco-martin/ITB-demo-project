@@ -27,7 +27,7 @@ An image's **path** is its position in the tree, like `ubuntu/python`. **Root im
 | Tree with the planned images highlighted, for a merge request | `python3 ./plan.py && python3 ./list.py --plan plan.json --markdown` | Paste the output into the merge request |
 | Check the README tree | `python3 ./list.py --check --update-file` | Exit 0 means it's current |
 | Regenerate the README tree | `python3 ./list.py --update-file` | Only needed after edits no script makes, like a root's `FROM` |
-| Set up the repository for GitHub or GitLab | See [Setting up the repository](#setting-up-the-repository-for-github-or-gitlab) | Creates `.env`, the CI files and the first root image |
+| Set up the repository for GitHub or GitLab | See [Setting up the repository](#setting-up-the-repository-for-github-or-gitlab) | Asks which platforms and base image to use, then creates `.env`, the CI files and the first root image |
 | Preview the GitLab child pipeline | `python3 ./plan.py --all && python3 ./pipeline.py -f gitlab` | Prints the pipeline CI would run |
 
 ```sh
@@ -118,30 +118,41 @@ To add an image, follow [Creating a new image](#creating-a-new-image). To remove
 
 Follow this when asked to "set up for GitHub" or "set up for GitLab", usually right after the release was unzipped into the repository. If the request doesn't say which, use the host in `git remote get-url origin` (`github.com` is GitHub; anything else is GitLab), and say so in your reply.
 
+Before changing anything, ask the maintainer, in one message, anything the request doesn't already answer:
+- which platforms the images should support (step 4), for example `linux/amd64` only, or `linux/amd64,linux/arm64`;
+- which image the first root image should be built from (step 8), for example `docker.io/ubuntu:24.04`.
+
 1. **Python.** Check that `python3 --version` is 3.11 or newer. If there's no `venv/`, create one with a 3.11+ interpreter (`python3.11 -m venv venv`, or whichever `python3.1x` exists) and run `venv/bin/python -m pip install -r requirements.txt`. An older Python fails with `SyntaxError` on `match`.
 2. **Work out the registry.** It's the lowercased project path on the host's registry, and it must match what CI uses exactly, because it's written into the `FROM` line of every child image:
    - GitHub: `ghcr.io/<owner>/<repo>`, all lowercase (`franco-martin/ITB-demo-project` becomes `ghcr.io/franco-martin/itb-demo-project`). The example workflow lowercases it the same way.
    - GitLab.com: `registry.gitlab.com/<group>/<project>`, all lowercase, the same as `$CI_REGISTRY_IMAGE`.
    - Self-hosted GitLab or any other registry: ask the maintainer. The registry host often differs from the web host.
 3. **Create `.env`.** If it doesn't exist, copy `sample-envs` to `.env` and set `IMAGETREE_REGISTRY` to the value from step 2. If it exists, check it with `grep -c '^IMAGETREE_REGISTRY=' .env` and, if the value might be wrong, ask the maintainer rather than reading or overwriting it. Never write credentials into `.env`; CI uses its own token and `plan.py --all` works without one.
-4. **Link base.** If `origin` is an SSH alias from `~/.ssh/config`, a self-hosted GitLab whose SSH host differs from its web url, or GitHub Enterprise, ask the maintainer for the url files are browsed at and set `IMAGETREE_LINK_BASE` in `.env`. See `README.md`, "`--link-base` and absolute urls".
-5. **Copy the CI files.** Don't overwrite an existing CI file: if one exists, merge the jobs into it and show the maintainer the result.
+4. **Platforms.** Use the platforms the maintainer asked for. Set them before creating any image: `createroot.py` and `new.py` store `IMAGETREE_PLATFORMS` in `index.yml` for every image they add, and changing it later only affects new images.
+   - Only the runners' own platform (`linux/amd64` on the hosted runners): leave `IMAGETREE_PLATFORMS` unset. Each image is built once, with no per-platform tags or manifest job.
+   - Several platforms: set `IMAGETREE_PLATFORMS=linux/amd64,linux/arm64` (their list, comma separated) in `.env`. Each platform is built on a runner of that architecture and merged into the tag by a manifest job.
+   - GitHub-hosted runners only cover `linux/amd64` and `linux/arm64`; GitLab.com's hosted runners the same. Any other platform needs self-hosted runners of that architecture: say so, and set `runs-on` (GitHub) or `tags` (GitLab) in the build jobs if the maintainer tells you the runner labels.
+5. **Link base.** If `origin` is an SSH alias from `~/.ssh/config`, a self-hosted GitLab whose SSH host differs from its web url, or GitHub Enterprise, ask the maintainer for the url files are browsed at and set `IMAGETREE_LINK_BASE` in `.env`. See `README.md`, "`--link-base` and absolute urls".
+6. **Copy the CI files.** Don't overwrite an existing CI file: if one exists, merge the jobs into it and show the maintainer the result.
    - GitHub: `examples/github/build-images.yml` to `.github/workflows/build-images.yml`.
    - GitLab: `examples/gitlab/.gitlab-ci.yml` to `.gitlab-ci.yml`, and `examples/gitlab/imagetree-pipeline.yml` to `.gitlab/imagetree-pipeline.yml`.
 
    Use them as they are unless the registry isn't the host's own (step 2): then change the registry in the plan job and the build jobs' login, following `docs/private-registries.md`.
-6. **README markers.** `README.md` must contain the `<!-- image-tree:start -->` and `<!-- image-tree:end -->` lines, or the tree is never written and CI's README check fails. The release `README.md` has them. If the maintainer kept their own README, add the two lines where the tree should go.
-7. **First root image.** CI fails until the tree has at least one image: `plan.py` and `list.py --check` both fail on an empty `index.yml`. If `index.yml` is missing or empty, create a root image as in [Creating a new image](#creating-a-new-image). Use the base image the maintainer asked for. If they didn't name one, ask; don't pick one yourself.
-8. **Check.**
+
+   With several platforms on GitLab.com, uncomment the `tags: [saas-linux-small-%ARCH%]` lines of the `.imagetree-image` job in `.gitlab/imagetree-pipeline.yml`, so each platform runs on a runner of its architecture. The GitHub workflow already runs arm64 builds on `ubuntu-24.04-arm`.
+7. **README markers.** `README.md` must contain the `<!-- image-tree:start -->` and `<!-- image-tree:end -->` lines, or the tree is never written and CI's README check fails. The release `README.md` has them. If the maintainer kept their own README, add the two lines where the tree should go.
+8. **First root image.** CI fails until the tree has at least one image: `plan.py` and `list.py --check` both fail on an empty `index.yml`. If `index.yml` is missing or empty, create a root image as in [Creating a new image](#creating-a-new-image). Use the base image the maintainer gave you; don't pick one yourself. Leave out `--platforms`, so it gets `IMAGETREE_PLATFORMS` from step 4. For several platforms, the base image must be published for all of them.
+9. **Check.**
    - `python3 ./list.py --check --update-file` exits 0.
-   - `python3 ./plan.py --all` lists the root image.
+   - `python3 ./plan.py --all` lists the root image, and `plan.json` shows the platforms from step 4 (none if it was left unset).
    - `python3 ./pipeline.py -f github` (or `-f gitlab`) runs without errors.
    - `git status` shows no `.env`.
-9. **Hand over.** Show the maintainer the files you added and the plan, and don't commit or push unless asked. Tell them what's left for them, since you can't do it from the repository:
+10. **Hand over.** Show the maintainer the files you added and the plan, and don't commit or push unless asked. Tell them what's left for them, since you can't do it from the repository:
    - Images are only built on pushes to the default branch; merge/pull requests only plan.
    - GitHub: the workflow pushes to ghcr.io with the built-in `GITHUB_TOKEN`. If a package with that name already exists and isn't linked to this repository, give the repository write access in the package settings.
    - GitLab: the project's container registry must be enabled (Settings > General > Visibility, project features).
-   - Multi-platform images need a runner per architecture. See `README.md`, "Multi-platform images".
+   - Platforms other than `linux/amd64` and `linux/arm64` need self-hosted runners of that architecture. See `README.md`, "Multi-platform images".
+   - To add a platform to an image later, it has to be bumped; changing `IMAGETREE_PLATFORMS` alone doesn't rebuild anything.
    - Protect the default branch.
 
 ## Rules
