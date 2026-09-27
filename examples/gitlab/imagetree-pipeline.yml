@@ -1,0 +1,83 @@
+# Example build pipeline template for image-tree-builder on GitLab CI.
+#
+# Copy this file to .gitlab/imagetree-pipeline.yml in your own repository (the
+# default `pipeline.py --template`). `pipeline.py -f gitlab` turns plan.json
+# into a child pipeline: everything in this file is copied as is, except the
+# two hidden jobs below, which become one job per image:
+#
+# - .imagetree-image builds an image, or one platform of a multi-platform
+#   image. It becomes "build <name>", or "build <name> <os>-<arch>" per platform.
+# - .imagetree-manifest merges the platform builds of an image into its tag,
+#   and becomes "build <name>". It's only used for images with platforms.
+#
+# pipeline.py adds `needs:` so every image waits for its parent's
+# "build <parent>" job. These placeholders are filled in for each job:
+#   %NAME% %VERSION% %TAG% %CONTAINERFILE% %CONTEXT% %PARENT% %STAGE%
+#   %REGISTRY% %PLATFORMS% %PLATFORM_TAGS%
+#   %PLATFORM% %OS% %ARCH% %VARIANT% %PLATFORM_TAG% (.imagetree-image only)
+# For an image without platforms, the platform placeholders are empty and
+# %PLATFORM_TAG% is %TAG%.
+#
+# Images are built with kaniko, which needs neither docker nor a privileged
+# runner. The -debug variant of the image is used because it has a shell for
+# `script:`; the plain tag has none.
+
+stages:
+  - build
+
+.imagetree-image:
+  stage: build
+  image:
+    name: ghcr.io/osscontainertools/kaniko:v1.28.5-debug
+    entrypoint: [""]
+  # kaniko builds for the machine it runs on and can't emulate other
+  # architectures. For multi-platform images (IMAGETREE_PLATFORMS or
+  # --platforms), run each platform on a runner of that architecture.
+  # On GitLab.com, uncomment:
+  # tags:
+  #   - saas-linux-small-%ARCH%
+  variables:
+    IMAGETREE_CONTAINERFILE: "%CONTAINERFILE%"
+    IMAGETREE_CONTEXT: "%CONTEXT%"
+    IMAGETREE_PLATFORM: "%PLATFORM%"
+    IMAGETREE_PLATFORM_TAG: "%PLATFORM_TAG%"
+  script:
+    - mkdir -p /kaniko/.docker
+    # Registry credentials for kaniko. To pull a FROM image from another
+    # private registry too, add it to "auths" with its own (masked) CI/CD
+    # variables. See docs/private-registries.md.
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    # Only the default branch pushes; other branches only check that the images build.
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then PUSH=""; else PUSH="--no-push"; fi
+      /kaniko/executor \
+        --context "$CI_PROJECT_DIR/$IMAGETREE_CONTEXT" \
+        --dockerfile "$CI_PROJECT_DIR/$IMAGETREE_CONTAINERFILE" \
+        --destination "$IMAGETREE_PLATFORM_TAG" \
+        ${IMAGETREE_PLATFORM:+--custom-platform "$IMAGETREE_PLATFORM"} \
+        $PUSH
+    # Never pass credentials with --build-arg: they end up in the image history.
+    # To give the build an npm token without leaking it into the image, set
+    # NPM_TOKEN as a masked CI/CD variable, add this option to the executor:
+    #   --secret id=npm_token,env=NPM_TOKEN
+    # and read it in the Containerfile with
+    #   RUN --mount=type=secret,id=npm_token ...
+
+.imagetree-manifest:
+  stage: build
+  image:
+    name: quay.io/buildah/stable:v1.43.4
+    entrypoint: [""]
+  variables:
+    IMAGETREE_TAG: "%TAG%"
+    IMAGETREE_PLATFORM_TAGS: "%PLATFORM_TAGS%"
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
+        echo "The platform builds weren't pushed, so there is no manifest to create"
+        exit 0
+      fi
+    - echo "$CI_REGISTRY_PASSWORD" | buildah login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - buildah manifest create "$IMAGETREE_TAG"
+    - for tag in $IMAGETREE_PLATFORM_TAGS; do buildah manifest add "$IMAGETREE_TAG" "docker://$tag"; done
+    - buildah manifest push --all "$IMAGETREE_TAG" "docker://$IMAGETREE_TAG"

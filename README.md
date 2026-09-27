@@ -1,2 +1,405 @@
-# ITB-demo-project
-Demo project for https://gitlab.com/franco-martin/image-tree-builder
+This repository's container images are managed with [image tree builder](https://gitlab.com/franco-martin/image-tree-builder). For working setups, see the demo projects on [GitLab](https://gitlab.com/franco-martin/itb-demo-project) and [GitHub](https://github.com/franco-martin/ITB-demo-project).
+
+# Quickstart
+
+## Image tree
+<!-- image-tree:start -->
+```mermaid
+flowchart LR
+    img_ubi9["ubi9<br/>1.0.0"]
+    src_registry_access_redhat_com_ubi9_ubi_9_4(["registry.access.redhat.com/ubi9/ubi:9.4"])
+    img_ubi9_curl["curl<br/>1.0.0"]
+    img_ubuntu24_04["ubuntu24-04<br/>1.0.0"]
+    src_docker_io_ubuntu_24_04(["docker.io/ubuntu:24.04"])
+    img_ubuntu24_04_curl["curl<br/>1.0.0"]
+    src_registry_access_redhat_com_ubi9_ubi_9_4 -.-> img_ubi9
+    img_ubi9 --> img_ubi9_curl
+    src_docker_io_ubuntu_24_04 -.-> img_ubuntu24_04
+    img_ubuntu24_04 --> img_ubuntu24_04_curl
+    click img_ubi9 href "https://github.com/franco-martin/ITB-demo-project/blob/HEAD/images/ubi9/Containerfile" "Open Containerfile"
+    click img_ubi9_curl href "https://github.com/franco-martin/ITB-demo-project/blob/HEAD/images/ubi9/curl/Containerfile" "Open Containerfile"
+    click img_ubuntu24_04 href "https://github.com/franco-martin/ITB-demo-project/blob/HEAD/images/ubuntu24-04/Containerfile" "Open Containerfile"
+    click img_ubuntu24_04_curl href "https://github.com/franco-martin/ITB-demo-project/blob/HEAD/images/ubuntu24-04/curl/Containerfile" "Open Containerfile"
+```
+
+| Image | Version | Platforms | Description | Build file | Context |
+| --- | --- | --- | --- | --- | --- |
+| ubi9 | 1.0.0 | linux/amd64, linux/arm64 | Red Hat UBI 9.4 base | [Containerfile](images/ubi9/Containerfile) | [context](images/ubi9/context) |
+| ubi9/curl | 1.0.0 | linux/amd64, linux/arm64 | Installs curl | [Containerfile](images/ubi9/curl/Containerfile) | [context](images/ubi9/curl/context) |
+| ubuntu24-04 | 1.0.0 | linux/amd64, linux/arm64 | Ubuntu 24.04 base | [Containerfile](images/ubuntu24-04/Containerfile) | [context](images/ubuntu24-04/context) |
+| ubuntu24-04/curl | 1.0.0 | linux/amd64, linux/arm64 | Installs curl | [Containerfile](images/ubuntu24-04/curl/Containerfile) | [context](images/ubuntu24-04/curl/context) |
+<!-- image-tree:end -->
+
+## Prerequisites
+The following dependencies are required to run the project:
+- Python 3.11+
+- pip
+- git (optional, used to find the url for the image tree's links, see [`--link-base`](#--link-base-and-absolute-urls))
+
+## What's in this release
+- The scripts: `createroot.py`, `new.py`, `bump.py`, `delete.py`, `list.py`, `plan.py` and `pipeline.py`, plus the modules they share
+- `examples/`: GitLab and GitHub pipelines that plan and build your images
+- `docs/private-registries.md`: registry credentials for planning and building
+- `AGENTS.md`: instructions for AI coding agents working in your repository
+- `CHANGELOG.md`: what changed between releases, and how to migrate
+- `sample-envs`: a starting point for your `.env` (see [Configuration](#configuration))
+- `version.txt`: the release you have installed
+
+## Installing the software for the first time
+> **Using an AI coding agent?** Unzip the release into your repository (steps 1–2), then ask the agent to *"set up this repository for GitHub"* or *"set up this repository for GitLab"*. `AGENTS.md` walks it through the rest: the virtual environment, `.env`, the CI files and your first root image. It first asks which platforms to support (for example `linux/amd64,linux/arm64`) and which base image to start from, and doesn't commit anything.
+
+1) Download the zip file called "InstallationFile" from the [Releases Page](https://gitlab.com/franco-martin/image-tree-builder/-/releases)
+2) Unzip the project into a folder. We recommend using a git repository
+3) Create a virtual environment and install the dependencies:
+   - `python3 -m venv venv`
+   - `source ./venv/bin/activate`
+   - `python3 -m pip install -r requirements.txt`
+4) Copy `sample-envs` to `.env` and set `IMAGETREE_REGISTRY` to your registry, for example `registry.gitlab.com/group/project`. If your `origin` remote isn't a plain GitLab or github.com url, also set `IMAGETREE_LINK_BASE` to the url your files are browsed at, like `https://gitlab.com/group/project/-/blob/main` (see [`--link-base`](#--link-base-and-absolute-urls)). Keep `.env` out of git; the release `.gitignore` already lists it.
+5) Create your first root image: `python3 ./createroot.py --from docker.io/ubuntu:24.04 --name ubuntu`. Don't put colons in the name (`ubuntu:24.04` becomes `ubuntu24-04`). It also writes the image tree into `README.md`.
+
+## Updating an existing Installation
+1) Delete every file from the previous release, except:
+   - `images/`
+   - `index.yml`
+   - `.env`
+   - any edits to `README.md` you want to keep
+   - your CI files (e.g. `.gitlab-ci.yml`, `.gitlab/`, `.github/workflows/`)
+   - any edits to `.gitignore` you want to keep
+2) Unzip the new release into the repository
+3) Read `CHANGELOG.md` for breaking changes and migration steps
+4) Run `python3 ./list.py --update-file` to refresh the image tree in this file
+5) Commit the changes with the new version number
+
+### Upgrading from 2.x
+3.0.0 no longer builds images itself: `build.py`, the custom build and push commands, `installer.py` and the catalog are gone. After step 1, make sure `build.py`, `installer.py`, `catalog.js` and `catalog/` are deleted, and replace the CI jobs that ran `build.py` with the [examples](#plan) (see [GitLab setup](#gitlab-setup) and [GitHub setup](#github-setup)). `CHANGELOG.md` lists every breaking change.
+
+Images that still have a `Dockerfile` keep working; nothing needs renaming. New images get a `Containerfile`, and when an image has both files the `Containerfile` is used. To switch an image over, rename its file with `git mv images/<path>/Dockerfile images/<path>/Containerfile`.
+
+## Cloning an existing repository
+1) Clone the desired repository and start a shell in that directory
+2) Run `python3 -m venv venv`
+3) Run `source ./venv/bin/activate`
+4) Install dependencies with the following command `python3 -m pip install -r requirements.txt`
+
+# Recommended deployment and workflow
+## Requirements
+- A git repository
+- An automation service (GitHub Actions, GitLab CI, etc)
+- A registry
+
+## Initial steps
+1) Clone the git repository to your local computer
+2) Download an unzip the latest stable release into the git repository
+3) Add all the files and commit them to the repository. So if anything goes wrong after this step, we can undo all changes
+4) Follow the steps in "Installing the software for the first time" to configure `.env` and create your first root image, and copy the CI files from `examples/` (see [GitLab setup](#gitlab-setup) and [GitHub setup](#github-setup)). With an AI coding agent, ask it to *"set up this repository for GitHub"* (or GitLab) instead.
+5) Commit the changes and push to main.
+6) Protect your main branch.
+
+## Updating images
+1) Create a branch from main
+2) Change the image's `Containerfile` (or add a new one with `new.py`/`createroot.py`)
+3) Run `python3 ./bump.py -t yourimage --minor` (or `--major`/`--patch`) so the image and its children get a new version
+4) `bump.py` has already updated the tree diagram and table in this file. If you changed something the scripts don't track, like a root image's `FROM` line, run `python3 ./list.py --update-file`
+5) Check what will build with `python3 ./plan.py`, then `python3 ./list.py --plan plan.json --markdown`
+6) Commit your changes, including the updated `README.md`, and open a merge/pull request
+7) A reviewer checks the diff and the plan/pipeline output to confirm only the intended images will build
+8) Once approved and merged, your CI pipeline builds (and pushes) the planned images
+
+# Plan
+CI builds the images. This project never builds or pushes anything itself. Two steps hand the work to your pipeline:
+1. `plan.py` works out **which** images need building and **in what order**, and writes that to `plan.json`.
+2. `pipeline.py` turns `plan.json` into a pipeline: a GitLab child pipeline rendered from your template, or GitHub Actions matrices.
+
+## plan.py
+```
+plan.py [-t PATH [--include-children]] [--all] [-o FILE]
+```
+- `-t/--target PATH` restricts the plan to one image (e.g. `ubuntu/python`). Add `--include-children` to also plan its descendants.
+- `--all` skips the registry check and plans every matching image, even if its version is already published.
+- `-o/--output FILE` writes the plan somewhere other than `plan.json`.
+
+It also lists the images it planned on stdout, in build order, so the job log of a merge request shows what will be built once it's merged:
+```
+2 image(s) to build:
+  stage 0  registry.example.com/group/ubuntu:1.0.0  (linux/amd64, linux/arm64)
+  stage 1  registry.example.com/group/ubuntu/python:1.0.0  (linux/amd64, linux/arm64)
+```
+It prints `Nothing to build` when every image is already in the registry. Registry progress lines and logs are written to stderr.
+
+### The plan file
+```json
+{"registry": "registry.example.com/group", "images": [
+  {"name": "ubuntu", "version": "1.0.0", "tag": "registry.example.com/group/ubuntu:1.0.0",
+   "containerfile": "images/ubuntu/Containerfile", "context": "images/ubuntu/context",
+   "parent": null, "depends_on": [], "stage": 0, "platforms": ["linux/amd64", "linux/arm64"]},
+  {"name": "ubuntu/python", "version": "1.0.0", "tag": "registry.example.com/group/ubuntu/python:1.0.0",
+   "containerfile": "images/ubuntu/python/Containerfile", "context": "images/ubuntu/python/context",
+   "parent": "ubuntu", "depends_on": ["ubuntu"], "stage": 1, "platforms": ["linux/amd64", "linux/arm64"]}]}
+```
+Images are listed parents first. `depends_on` only lists the parent when the parent is *also* in the plan (a parent that's already built and pushed doesn't need to be waited on). `stage` is `0` for an image with no dependencies, and one more than its parent's stage otherwise, so a CI system can run every image in the same stage in parallel. `containerfile` is the image's `Containerfile`, or its `Dockerfile` when it has no `Containerfile`. `platforms` is explained in [Multi-platform images](#multi-platform-images).
+
+## pipeline.py
+```
+pipeline.py -f gitlab|github [-p PLAN] [--template FILE] [-o FILE]
+```
+- `-f/--format`: `gitlab` renders a child pipeline from a template; `github` writes `$GITHUB_OUTPUT` lines.
+- `-p/--plan PLAN`: the plan file (default `plan.json`).
+- `--template FILE`: the GitLab template (default `.gitlab/imagetree-pipeline.yml`).
+- `-o/--output FILE`: write the pipeline to a file instead of stdout.
+
+## GitLab setup
+The template is an ordinary GitLab pipeline with two extra hidden jobs. `pipeline.py -f gitlab` copies everything in it as is, except those two, which it turns into one job per image:
+- `.imagetree-image` builds an image, or one platform of a multi-platform image. It becomes `build <name>`, or `build <name> <os>-<arch>` per platform (e.g. `build ubuntu linux-arm64`).
+- `.imagetree-manifest` merges the platform builds of an image into its tag, and becomes `build <name>`. It's only needed when some image has platforms.
+
+Every image's last job is `build <name>`, and `pipeline.py` adds a `needs:` on the parent's `build <parent>` job whenever the parent is in the plan too, keeping any `needs:` the template already has. If nothing needs building, the pipeline gets a single `nothing to build` job, since GitLab rejects a child pipeline with no jobs.
+
+These placeholders are replaced in the two jobs, in keys and values alike. Unknown `%...%` text is left alone.
+
+| Placeholder | Value |
+| --- | --- |
+| `%NAME%`, `%VERSION%`, `%TAG%` | The image's path, version and full tag |
+| `%CONTAINERFILE%`, `%CONTEXT%` | Its build file and context, relative to the repository root |
+| `%PARENT%`, `%STAGE%`, `%REGISTRY%` | Its parent (empty for roots), stage and the registry |
+| `%PLATFORMS%`, `%PLATFORM_TAGS%` | Its platforms, comma separated, and the per-platform tags, space separated |
+| `%PLATFORM%`, `%OS%`, `%ARCH%`, `%VARIANT%` | `.imagetree-image` only: the platform this job builds, and its parts |
+| `%PLATFORM_TAG%` | `.imagetree-image` only: where to push this build, `<tag>-<os>-<arch>`, or `%TAG%` for images without platforms |
+
+See [`examples/gitlab/.gitlab-ci.yml`](examples/gitlab/.gitlab-ci.yml) for the parent pipeline that plans, renders and triggers the child pipeline, and [`examples/gitlab/imagetree-pipeline.yml`](examples/gitlab/imagetree-pipeline.yml) for a template that builds with kaniko (`ghcr.io/osscontainertools/kaniko`) and merges platforms with `buildah manifest`. Copy the template to `.gitlab/imagetree-pipeline.yml` and adapt it. The [GitLab demo project](https://gitlab.com/franco-martin/itb-demo-project) runs this setup.
+
+## GitHub setup
+`pipeline.py -f github` writes lines to append to `$GITHUB_OUTPUT`, one matrix per build stage (a GitHub Actions matrix can't express dependencies between its own entries):
+- `stages=N`;
+- `stage0={"include":[...]}`, `stage1=...`: one entry per image and platform, with the image's fields plus `platform`, `os`, `arch`, `variant` and `platform_tag`;
+- `stage0_manifest={"include":[...]}`, ...: only for stages with multi-platform images, one entry per such image with `platform_tags`.
+
+Only non-empty stages are written, and they're always contiguous starting at 0, so a workflow can skip a stage job whose output is empty. An empty plan writes only `stages=0`.
+
+See [`examples/github/build-images.yml`](examples/github/build-images.yml) for a workflow with a build job and a manifest job per stage. It builds with kaniko, runs arm64 builds on `ubuntu-24.04-arm`, and merges platforms with `docker buildx imagetools create`. The [GitHub demo project](https://github.com/franco-martin/ITB-demo-project) runs this setup.
+
+The workflow sets the registry to `ghcr.io/<owner>/<repo>`, lowercased, because image references can't contain uppercase letters. Set `IMAGETREE_REGISTRY` in your `.env` to the same lowercase value, since it's written into your images' `FROM` lines.
+
+## Multi-platform images
+By default every image is built once, for the platform of the machine that builds it. To build for several platforms:
+- set `IMAGETREE_PLATFORMS=linux/amd64,linux/arm64` in `.env`: `createroot.py` and `new.py` then store it in `index.yml` for every image they add, as if you passed `--platforms`;
+- or give one image its own platforms with `createroot.py`/`new.py --platforms linux/amd64`, also stored in `index.yml`.
+
+An image uses its own platforms, otherwise its closest ancestor's, otherwise `IMAGETREE_PLATFORMS` (so it can also be set as a CI variable for images added without it). A child can't ask for a platform its parent isn't built for: `new.py` refuses it, and `plan.py` fails if it finds one.
+
+Each platform is built by its own job on a machine of that architecture, and pushed to `<tag>-<os>-<arch>`. A manifest job then merges them into `<tag>`, and children wait for that. The builders in the examples can't emulate other architectures, so you need runners for each one: on GitLab.com, uncomment the `tags: [saas-linux-small-%ARCH%]` line of the template; on GitHub, arm64 runs on `ubuntu-24.04-arm`.
+
+`plan.py` only checks that `<tag>` exists. To add a platform to an image that's already published, bump its version.
+
+## Credentials
+`plan.py` needs read access to your registry to check which versions are already published. See [`docs/private-registries.md`](docs/private-registries.md) for how to set up credentials for GitLab, GHCR, ECR, Artifact Registry/GCR, ACR, and self-hosted registries like Harbor, Nexus or Artifactory (including ones with a custom CA), and for how to keep base-image and package-manager credentials out of your build logs and image layers.
+
+## Refused repositories
+If the registry refuses access to a repository (a 403, or a 401 after a token was already obtained), `plan.py` logs a warning and treats that image as **not built** rather than failing, so it still gets planned. A 401 from the token service itself (meaning the credentials, if any, weren't even accepted) is a hard failure.
+
+## Custom registry commands
+By default the scripts talk to the registry's HTTP API. For registries where that doesn't work, you can have them run a command of your own instead. These commands run in a shell with the placeholders replaced as they are:
+
+| Placeholder | Value |
+| --- | --- |
+| `%REGISTRY%` | `IMAGETREE_REGISTRY`, e.g. `123456789012.dkr.ecr.us-east-1.amazonaws.com` |
+| `%REPOSITORY%` | The image's path in the tree, e.g. `ubuntu/python` |
+| `%TAG%` | The tag to delete (delete command only) |
+
+**This might be a security risk in some scenarios since there is no validation done in the variables. Use at your own risk.**
+
+### Custom list tags command
+`IMAGETREE_CUSTOM_LIST_TAGS_CMD` replaces the registry lookup of a repository's tags. **`plan.py` uses it too**, to check which versions are already published, as well as `delete.py --from-registry`. Its output must be a json list of tags, like `["1.0.0", "1.1.0"]`.
+
+To list the tags in a repository hosted in AWS ECR, create a file named `get_tags.sh` with the following content (works on linux and mac os)
+
+```
+OUTPUT=$(aws ecr list-images --repository-name $1 --output json --no-paginate --no-cli-pager 2>&1 | jq -c '[.imageIds[].imageTag ]' 2>&1)
+if [[ $? == 0 ]] ; then
+echo $OUTPUT
+else
+echo "[]"
+fi
+```
+
+Then use the following variable to run that command to get the tags
+`export IMAGETREE_CUSTOM_LIST_TAGS_CMD="bash get_tags.sh %REPOSITORY%"`
+
+Python will run the command `bash get_tags.sh %REPOSITORY%` replacing %REPOSITORY% with the actual repository, bash will then run the command inside the file using the first parameter as --repository-name for the aws command.
+
+### Custom delete command
+`IMAGETREE_CUSTOM_DELETE_CMD` replaces the registry API call that `delete.py --from-registry` uses to delete a tag.
+
+To delete an image from AWS ECR, use `export IMAGETREE_CUSTOM_DELETE_CMD="aws ecr batch-delete-image --repository-name %REPOSITORY% --image-ids imageTag=%TAG%"`
+
+# Configuration
+Every script loads the `.env` file in the repository root; exported environment variables work too (e.g. as CI variables). Start from `sample-envs`.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `IMAGETREE_REGISTRY` | `sample_repo` | The registry and namespace images are tagged with, e.g. `registry.gitlab.com/group/project` |
+| `IMAGETREE_REGISTRY_USERNAME`, `IMAGETREE_REGISTRY_PASSWORD` | | Registry credentials for `plan.py` and `delete.py --from-registry`. See [Credentials](#credentials) |
+| `IMAGETREE_REGISTRY_AUTH_FILE` | | A Docker/Podman auth file to read credentials from. See [Credentials](#credentials) |
+| `IMAGETREE_REGISTRY_CA_CERT` | | A CA bundle to trust for the registry and its token service |
+| `IMAGETREE_USE_HTTP_REGISTRY` | `False` | Set to `True` to talk to the registry over plain http |
+| `IMAGETREE_IMAGE_DIR` | `images` | The directory that holds the images' build files |
+| `IMAGETREE_PLATFORMS` | | Platforms stored for new images. See [Multi-platform images](#multi-platform-images) |
+| `IMAGETREE_TREE_FILE` | `README.md` | The file whose image tree the scripts keep up to date; empty to turn it off. See [Tree diagrams](#tree-diagrams) |
+| `IMAGETREE_LINK_BASE` | | The url the tree's links start with. See [`--link-base`](#--link-base-and-absolute-urls) |
+| `IMAGETREE_CUSTOM_LIST_TAGS_CMD`, `IMAGETREE_CUSTOM_DELETE_CMD` | | See [Custom registry commands](#custom-registry-commands) |
+| `IMAGETREE_IMAGE_MAX_LENGTH` | `80` | Column width of the image names in `plan.py`'s registry progress lines |
+| `LOG_LEVEL` | `WARNING` | Set to `DEBUG` for more detail. Logs go to stderr |
+
+# Tree diagrams
+`list.py` can render the image tree as a [mermaid](https://mermaid.js.org/) flowchart, for embedding in this or any other markdown file.
+
+```
+list.py [-f tree|json|mermaid] [--json] [--show-versions] [--no-versions] [--no-sources]
+        [--direction LR|RL|TD|BT] [--markdown] [--link-base URL]
+        [--update-file [FILE]] [--check] [--plan PLAN]
+```
+
+- `-f mermaid` prints the flowchart. `--markdown` prints the whole README block instead: the fenced flowchart followed by a table of every image.
+- `--update-file [FILE]` (default `README.md`) replaces the text between the `<!-- image-tree:start -->` and `<!-- image-tree:end -->` markers of that file with that block (this is exactly the block at the top of this file). Don't hand-edit that block, it's overwritten every time.
+
+  `createroot.py`, `new.py`, `bump.py` and `delete.py` do the same for `README.md` every time they change `index.yml` (not with `--dry-run`). So you only need to run `--update-file` yourself after changes those scripts don't make, like editing a root image's `FROM` line, or after installing a new release. Set `IMAGETREE_TREE_FILE` to keep the tree in another file, or to an empty value to turn this off. A file without the markers is left alone.
+- `--check` (with `--update-file`) doesn't write anything; it exits with `1` if the file is out of date, so you can wire it into CI to make sure `README.md` was regenerated.
+- `--plan PLAN` highlights the images in a plan file and dims the rest. It can't be combined with `--update-file`.
+- `--no-versions`/`--no-sources` leave the version numbers or the external source images (e.g. `docker.io/ubuntu:24.04`) out of the diagram, and `--direction` picks the flowchart's layout direction.
+
+## `--link-base` and absolute urls
+Clicking a node in the diagram opens its `Containerfile`. Mermaid's `click` directive needs an **absolute** url to do that reliably on GitHub (relative links don't work there), so `--link-base` sets the prefix, e.g. `https://gitlab.com/group/project/-/blob/main`. If you don't pass it, `utils.get_link_base()` tries, in order:
+1. `$IMAGETREE_LINK_BASE`
+2. GitLab CI: `$CI_PROJECT_URL/-/blob/$CI_DEFAULT_BRANCH`
+3. GitHub Actions: `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/HEAD`
+4. The git `origin` remote, built the same way CI does: `<project url>/blob/HEAD` for `github.com`, and `<project url>/-/blob/<default branch>` for any other host, which is treated as GitLab. The default branch comes from `refs/remotes/origin/HEAD`, which `git clone` sets; run `git remote set-head origin --auto` if it's missing. Credentials in the remote url are dropped.
+5. None (no click links are rendered)
+
+CI's `readme-check` job uses option 2 or 3, and for a normal clone option 4 gives the same url locally. Set `IMAGETREE_LINK_BASE` in `.env` when it doesn't: the remote is an SSH alias from `~/.ssh/config`, a self-hosted GitLab's SSH host differs from its web url, or you use GitHub Enterprise. Otherwise the check fails in CI.
+
+The table below the diagram doesn't have this problem: its links to each `Containerfile` and `context` folder are always relative to the markdown file, which GitLab and GitHub both render correctly without any configuration.
+
+## In merge request comments
+`python3 ./plan.py && python3 ./list.py --plan plan.json --markdown` renders the whole tree with the images that the plan would build highlighted, fenced for pasting straight into a merge/pull request comment, so reviewers can see at a glance what's about to build.
+
+# Commands
+Run every script from the repository root. Every script that changes `index.yml` also refreshes the image tree in `README.md` (see [Tree diagrams](#tree-diagrams)).
+
+## Create root
+The Create root command is used to add a new image at the top of the tree.
+Use the following example to create the "redhat-ubi9" image that will be built from the redhat/ubi9 image.
+
+`python3 ./createroot.py --from redhat/ubi9:9.5 --name redhat-ubi9 --description "Red Hat UBI 9"`
+
+```
+createroot.py --from IMAGE --name NAME [--version X.Y.Z] [--description TEXT] [--platforms LIST]
+```
+- `-f/--from` is the external image to build from. Pin it to a static tag rather than `latest`.
+- `-n/--name` can't contain colons or slashes (`ubuntu:24.04` becomes `ubuntu24-04`).
+- `-v/--version` is the initial version, `1.0.0` by default. It must be strict semver, without leading zeros.
+- `-d/--description` is stored in `index.yml` and shown in the tree's table.
+- `--platforms linux/amd64,linux/arm64` builds it for specific platforms instead of `IMAGETREE_PLATFORMS` (see [Multi-platform images](#multi-platform-images)).
+
+This creates `images/redhat-ubi9/` with a `Containerfile` (`FROM redhat/ubi9:9.5`) and an empty `context` folder.
+
+## New
+The new command is used to add a new image to the tree, specifying its parent.
+Use the following example to create the "python3-10" image from the "redhat-ubi9" parent.
+
+`python3 ./new.py -p redhat-ubi9 -n python3-10`
+
+```
+new.py --parent PATH --name NAME [--version X.Y.Z] [--description TEXT] [--platforms LIST]
+```
+`-p/--parent` is the parent's full path in the tree, like `redhat-ubi9` or `ubuntu/python`. The other options are the same as `createroot.py`'s. The image is built for the platforms in `--platforms`, or `IMAGETREE_PLATFORMS`, or else its parent's. They can only name platforms the parent is built for.
+
+This will create a directory within the parent image's directory in the "images" folder.
+
+In this case the directory will be `images/redhat-ubi9/python3-10`.
+Within that directory, we will find a Containerfile and a context folder. The context folder is used for storing context when building the python3-10 image and the Containerfile contains the instructions to build the image. It starts with a `FROM` line pointing at the parent's tag in your registry; keep that line and add your instructions below it.
+
+## Bump
+The bump command updates a target image. Use the following example to change the minor version of the root image
+
+`python3 ./bump.py -t "redhat-ubi9" --minor`
+
+```
+bump.py -t PATH (--major | --minor | --patch) [--patch-children] [--dry-run]
+```
+
+This command will change the version of the redhat-ubi9 image from 1.0.0 to 1.1.0.
+
+Since the python3-10 image depends on the redhat-ubi9 image, its minor version will also be bumped.
+Finally, the Containerfile for the python3-10 image will also be updated to be built from the latest version of its parent.
+
+- `--patch-children` bumps only the patch version of the children, whatever level the target gets.
+- `--dry-run` shows what would change without writing anything.
+
+## Delete
+The delete command deletes an image, **and all of its children**, from `index.yml` and the `images` folder. Additionally it can delete the images from the registry.
+
+```
+delete.py -t PATH [--from-registry [--all-tags]] [--dry-run]
+```
+
+`python3 ./delete.py -t redhat-ubi9`
+
+To also delete the image's current version from the registry, add the `--from-registry` flag:
+
+`python3 ./delete.py -t redhat-ubi9 --from-registry`
+
+To delete all tags of the image, add the `--all-tags` flag:
+
+`python3 ./delete.py -t redhat-ubi9 --from-registry --all-tags`
+
+Use `--dry-run` first to see what would be deleted. Since deletion is an asynchronous process, you might need to trigger garbage collection on your registry. For registries without a delete API, see [Custom registry commands](#custom-registry-commands).
+
+## List
+
+The list command shows the tree in a human readable way, but also supports json and a mermaid flowchart (see [Tree diagrams](#tree-diagrams) above).
+
+Here's the output of `python3 ./list.py` in the default human readable format
+```
+.
+├── redhat-ubi8
+│   └── python3-10
+├── rockylinux-9-2
+│   └── python3-10
+└── ubuntu-jammy
+    ├── java8
+    │   └── maven3-9
+    └── python3-11
+```
+Below is its json format using `python3 ./list.py --json` (equivalent to `python3 ./list.py -f json`)
+```
+{
+  "redhat-ubi8": {
+    "python3-10": null
+  },
+  "rockylinux-9-2": {
+    "python3-10": null
+  },
+  "ubuntu-jammy": {
+    "java8": {
+      "maven3-9": null
+    },
+    "python3-11": null
+  }
+}
+```
+Additionally, it supports showing each image's version with `python3 ./list.py --json --show-versions`
+```
+{
+  "redhat-ubi8:1.0.1": {
+    "python3-10:1.2.0": null
+  },
+  "rockylinux-9-2:1.0.0": {
+    "python3-10:1.0.0": null
+  },
+  "ubuntu-jammy:1.1.0": {
+    "java8:1.1.0": {
+      "maven3-9:1.1.0": null
+    },
+    "python3-11:1.1.0": null
+  }
+}
+```

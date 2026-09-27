@@ -1,0 +1,357 @@
+# Example workflow for image-tree-builder on GitHub Actions.
+#
+# Copy this file to .github/workflows/build-images.yml in your own repository.
+#
+# The plan job writes plan.json with the images that aren't in the registry yet,
+# and `pipeline.py -f github` turns it into step outputs: one matrix per build
+# stage (stage0, stage1, ...) with an entry per image and platform, and for
+# stages with multi-platform images a manifest matrix (stage0_manifest, ...).
+# A matrix can't express dependencies between its own entries, so this workflow
+# defines one build job and one manifest job per stage and chains them with
+# `needs`. check-depth fails the run if the tree is deeper than the
+# stage0..stage3 jobs defined here, as a reminder to add more.
+#
+# Images are only built and pushed, with kaniko and the built-in GITHUB_TOKEN,
+# on pushes to the default branch. Pull requests still run plan, so reviewers
+# can see what will be built once they're merged. kaniko builds for the machine it
+# runs on, so each platform runs on a runner of that architecture: arm64 on
+# ubuntu-24.04-arm, everything else on ubuntu-24.04. GitHub-hosted runners only
+# cover linux/amd64 and linux/arm64; for other platforms, change runs-on to
+# self-hosted runners of that architecture. See docs/private-registries.md to
+# use a different registry.
+
+name: Build images
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  KANIKO_IMAGE: ghcr.io/osscontainertools/kaniko:v1.28.5
+  PUSH: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  readme-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python3 list.py --check --update-file
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      stages: ${{ steps.plan.outputs.stages }}
+      stage0: ${{ steps.plan.outputs.stage0 }}
+      stage0_manifest: ${{ steps.plan.outputs.stage0_manifest }}
+      stage1: ${{ steps.plan.outputs.stage1 }}
+      stage1_manifest: ${{ steps.plan.outputs.stage1_manifest }}
+      stage2: ${{ steps.plan.outputs.stage2 }}
+      stage2_manifest: ${{ steps.plan.outputs.stage2_manifest }}
+      stage3: ${{ steps.plan.outputs.stage3 }}
+      stage3_manifest: ${{ steps.plan.outputs.stage3_manifest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: plan
+        id: plan
+        env:
+          IMAGETREE_REGISTRY_USERNAME: ${{ github.actor }}
+          IMAGETREE_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        # bash with pipefail, so a failing plan.py isn't hidden by tee
+        shell: bash
+        run: |
+          # ghcr.io/<owner>/<repo>, lowercased: image references can't have
+          # uppercase letters, but GitHub owner and repository names can.
+          # Your .env must set the same IMAGETREE_REGISTRY.
+          export IMAGETREE_REGISTRY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          python3 plan.py | tee plan.txt
+          python3 pipeline.py -f github >> "$GITHUB_OUTPUT"
+      # Uncomment to check tags in Amazon ECR instead of ghcr.io, replacing the
+      # "plan" step above. Requires an IAM role or access keys configured with
+      # aws-actions/configure-aws-credentials earlier in this job, allowed
+      # ecr:GetAuthorizationToken / ecr:DescribeImages.
+      # - name: Log in to Amazon ECR
+      #   id: ecr-login
+      #   uses: aws-actions/amazon-ecr-login@v2
+      # - name: plan
+      #   id: plan
+      #   env:
+      #     IMAGETREE_REGISTRY: ${{ steps.ecr-login.outputs.registry }}/my-namespace
+      #     IMAGETREE_REGISTRY_USERNAME: AWS
+      #     IMAGETREE_REGISTRY_PASSWORD: ${{ steps.ecr-login.outputs.docker_password_stdout }}
+      #   shell: bash
+      #   run: |
+      #     python3 plan.py | tee plan.txt
+      #     python3 pipeline.py -f github >> "$GITHUB_OUTPUT"
+      - name: Add the images to build to the job summary
+        run: |
+          {
+            echo "### Images to build"
+            echo
+            echo '```'
+            cat plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: plan.json
+
+  check-depth:
+    runs-on: ubuntu-latest
+    needs: [plan]
+    steps:
+      - name: Fail if the tree is deeper than the stage jobs defined in this workflow
+        run: |
+          stages="${{ needs.plan.outputs.stages }}"
+          if [ "$stages" -gt 4 ]; then
+            echo "pipeline.py reported $stages stages, but only stage0..stage3 are defined in this workflow. Add a stage4 and stage4-manifest job." >&2
+            exit 1
+          fi
+
+  stage0:
+    needs: [plan]
+    if: needs.plan.outputs.stage0 != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage0) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (the options below apply to every stage)
+        # To pull a FROM image from another private registry too, add it to
+        # "auths" in config.json with its own secrets.
+        # Never pass credentials with --build-arg: they end up in the image
+        # history. To give the build an npm token without leaking it, add
+        #   NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # to env, add this option to docker run:
+        #   -e NPM_TOKEN
+        # and this one to kaniko:
+        #   --secret id=npm_token,env=NPM_TOKEN
+        # and read it in the Containerfile with
+        #   RUN --mount=type=secret,id=npm_token ...
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          CONTEXT: ${{ matrix.context }}
+          CONTAINERFILE: ${{ matrix.containerfile }}
+          PLATFORM: ${{ matrix.platform }}
+          PLATFORM_TAG: ${{ matrix.platform_tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kaniko"
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 -w0)" > "$RUNNER_TEMP/kaniko/config.json"
+          if [ "$PUSH" = "true" ]; then push=""; else push="--no-push"; fi
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$RUNNER_TEMP/kaniko/config.json:/kaniko/.docker/config.json:ro" \
+            "$KANIKO_IMAGE" \
+            --context "/workspace/$CONTEXT" \
+            --dockerfile "/workspace/$CONTAINERFILE" \
+            --destination "$PLATFORM_TAG" \
+            ${PLATFORM:+--custom-platform "$PLATFORM"} \
+            $push
+
+  stage0-manifest:
+    needs: [plan, stage0]
+    if: needs.plan.outputs.stage0_manifest != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage0_manifest) }}
+    steps:
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge the platform builds into ${{ matrix.tag }}
+        env:
+          TAG: ${{ matrix.tag }}
+          PLATFORM_TAGS: ${{ matrix.platform_tags }}
+        run: |
+          if [ "$PUSH" != "true" ]; then
+            echo "The platform builds weren't pushed, so there is no manifest to create"
+            exit 0
+          fi
+          docker buildx imagetools create --tag "$TAG" $PLATFORM_TAGS
+
+  stage1:
+    needs: [plan, stage0, stage0-manifest]
+    if: needs.plan.outputs.stage1 != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage1) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          CONTEXT: ${{ matrix.context }}
+          CONTAINERFILE: ${{ matrix.containerfile }}
+          PLATFORM: ${{ matrix.platform }}
+          PLATFORM_TAG: ${{ matrix.platform_tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kaniko"
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 -w0)" > "$RUNNER_TEMP/kaniko/config.json"
+          if [ "$PUSH" = "true" ]; then push=""; else push="--no-push"; fi
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$RUNNER_TEMP/kaniko/config.json:/kaniko/.docker/config.json:ro" \
+            "$KANIKO_IMAGE" \
+            --context "/workspace/$CONTEXT" \
+            --dockerfile "/workspace/$CONTAINERFILE" \
+            --destination "$PLATFORM_TAG" \
+            ${PLATFORM:+--custom-platform "$PLATFORM"} \
+            $push
+
+  stage1-manifest:
+    needs: [plan, stage1]
+    if: needs.plan.outputs.stage1_manifest != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage1_manifest) }}
+    steps:
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge the platform builds into ${{ matrix.tag }}
+        env:
+          TAG: ${{ matrix.tag }}
+          PLATFORM_TAGS: ${{ matrix.platform_tags }}
+        run: |
+          if [ "$PUSH" != "true" ]; then
+            echo "The platform builds weren't pushed, so there is no manifest to create"
+            exit 0
+          fi
+          docker buildx imagetools create --tag "$TAG" $PLATFORM_TAGS
+
+  stage2:
+    needs: [plan, stage1, stage1-manifest]
+    if: needs.plan.outputs.stage2 != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage2) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          CONTEXT: ${{ matrix.context }}
+          CONTAINERFILE: ${{ matrix.containerfile }}
+          PLATFORM: ${{ matrix.platform }}
+          PLATFORM_TAG: ${{ matrix.platform_tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kaniko"
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 -w0)" > "$RUNNER_TEMP/kaniko/config.json"
+          if [ "$PUSH" = "true" ]; then push=""; else push="--no-push"; fi
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$RUNNER_TEMP/kaniko/config.json:/kaniko/.docker/config.json:ro" \
+            "$KANIKO_IMAGE" \
+            --context "/workspace/$CONTEXT" \
+            --dockerfile "/workspace/$CONTAINERFILE" \
+            --destination "$PLATFORM_TAG" \
+            ${PLATFORM:+--custom-platform "$PLATFORM"} \
+            $push
+
+  stage2-manifest:
+    needs: [plan, stage2]
+    if: needs.plan.outputs.stage2_manifest != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage2_manifest) }}
+    steps:
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge the platform builds into ${{ matrix.tag }}
+        env:
+          TAG: ${{ matrix.tag }}
+          PLATFORM_TAGS: ${{ matrix.platform_tags }}
+        run: |
+          if [ "$PUSH" != "true" ]; then
+            echo "The platform builds weren't pushed, so there is no manifest to create"
+            exit 0
+          fi
+          docker buildx imagetools create --tag "$TAG" $PLATFORM_TAGS
+
+  stage3:
+    needs: [plan, stage2, stage2-manifest]
+    if: needs.plan.outputs.stage3 != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage3) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          CONTEXT: ${{ matrix.context }}
+          CONTAINERFILE: ${{ matrix.containerfile }}
+          PLATFORM: ${{ matrix.platform }}
+          PLATFORM_TAG: ${{ matrix.platform_tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kaniko"
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 -w0)" > "$RUNNER_TEMP/kaniko/config.json"
+          if [ "$PUSH" = "true" ]; then push=""; else push="--no-push"; fi
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$RUNNER_TEMP/kaniko/config.json:/kaniko/.docker/config.json:ro" \
+            "$KANIKO_IMAGE" \
+            --context "/workspace/$CONTEXT" \
+            --dockerfile "/workspace/$CONTAINERFILE" \
+            --destination "$PLATFORM_TAG" \
+            ${PLATFORM:+--custom-platform "$PLATFORM"} \
+            $push
+
+  stage3-manifest:
+    needs: [plan, stage3]
+    if: needs.plan.outputs.stage3_manifest != '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !failure() && !cancelled()
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.stage3_manifest) }}
+    steps:
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge the platform builds into ${{ matrix.tag }}
+        env:
+          TAG: ${{ matrix.tag }}
+          PLATFORM_TAGS: ${{ matrix.platform_tags }}
+        run: |
+          if [ "$PUSH" != "true" ]; then
+            echo "The platform builds weren't pushed, so there is no manifest to create"
+            exit 0
+          fi
+          docker buildx imagetools create --tag "$TAG" $PLATFORM_TAGS

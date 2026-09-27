@@ -1,0 +1,71 @@
+# Example parent pipeline for image-tree-builder on GitLab CI.
+#
+# Copy this file to the root of your repository as .gitlab-ci.yml, and copy
+# examples/gitlab/imagetree-pipeline.yml to .gitlab/imagetree-pipeline.yml.
+#
+# The plan job writes plan.json with the images that aren't in the registry yet,
+# and pipeline.py turns it into a child pipeline from the template, which
+# build-images runs.
+#
+# IMAGETREE_REGISTRY defaults below to this project's own container registry
+# (via $CI_REGISTRY_IMAGE). Point it at a different registry if you push images
+# elsewhere, and see docs/private-registries.md for other registries.
+
+stages:
+  - check
+  - plan
+  - build
+
+# Shared by the jobs that run the image-tree-builder scripts
+.imagetree-python:
+  image: python:3.11-slim
+  variables:
+    PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  cache:
+    key: pip-$CI_COMMIT_REF_SLUG
+    paths:
+      - .cache/pip
+  before_script:
+    - python3 -m pip install --quiet --root-user-action=ignore -r requirements.txt
+
+readme-check:
+  extends: .imagetree-python
+  stage: check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+  script:
+    - python3 list.py --check --update-file
+
+plan:
+  extends: .imagetree-python
+  stage: plan
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    IMAGETREE_REGISTRY: $CI_REGISTRY_IMAGE
+    IMAGETREE_REGISTRY_USERNAME: $CI_REGISTRY_USER
+    IMAGETREE_REGISTRY_PASSWORD: $CI_JOB_TOKEN
+  script:
+    # Lists the images that will be built once this is merged
+    - python3 plan.py
+    - python3 pipeline.py -f gitlab -o build-pipeline.yml
+  artifacts:
+    paths:
+      - plan.json
+      - build-pipeline.yml
+
+# Builds and pushes only on the default branch. Merge requests still run plan,
+# so reviewers can see what will be built once they're merged.
+build-images:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  needs:
+    - plan
+  trigger:
+    include:
+      - artifact: build-pipeline.yml
+        job: plan
+    strategy: depend

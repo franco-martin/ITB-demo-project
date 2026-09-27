@@ -1,0 +1,11 @@
+__pycache__/
+.vscode/
+.coverage
+coverage.json
+coverage.xml
+**/.terraform/
+**/*:Zone.Identifier
+.env
+venv/
+plan.json
+build-pipeline.yml
