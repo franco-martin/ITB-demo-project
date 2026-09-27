@@ -1,4 +1,4 @@
-FROM ghcr.io/franco-martin/itb-demo-project/ubi9:1.0.0
+FROM ghcr.io/franco-martin/itb-demo-project/ubi9:1.0.1
 
 RUN dnf install -y tar && \
     dnf clean all
