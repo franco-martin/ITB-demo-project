@@ -6,12 +6,12 @@ This repository's container images are managed with [image tree builder](https:/
 <!-- image-tree:start -->
 ```mermaid
 flowchart LR
-    img_ubi9["ubi9<br/>1.0.1"]
+    img_ubi9["ubi9<br/>1.0.2"]
     src_registry_access_redhat_com_ubi9_ubi_9_4(["registry.access.redhat.com/ubi9/ubi:9.4"])
-    img_ubi9_tar["tar<br/>1.0.1"]
-    img_ubuntu24_04["ubuntu24-04<br/>1.0.1"]
+    img_ubi9_tar["tar<br/>1.0.2"]
+    img_ubuntu24_04["ubuntu24-04<br/>1.0.2"]
     src_docker_io_ubuntu_24_04(["docker.io/ubuntu:24.04"])
-    img_ubuntu24_04_curl["curl<br/>1.0.1"]
+    img_ubuntu24_04_curl["curl<br/>1.0.2"]
     src_registry_access_redhat_com_ubi9_ubi_9_4 -.-> img_ubi9
     img_ubi9 --> img_ubi9_tar
     src_docker_io_ubuntu_24_04 -.-> img_ubuntu24_04
@@ -24,10 +24,10 @@ flowchart LR
 
 | Image | Version | Platforms | Description | Build file | Context |
 | --- | --- | --- | --- | --- | --- |
-| ubi9 | 1.0.1 | linux/amd64, linux/arm64 | Red Hat UBI 9.4 base | [Containerfile](images/ubi9/Containerfile) | [context](images/ubi9/context) |
-| ubi9/tar | 1.0.1 | linux/amd64, linux/arm64 | tar on ubi9 | [Containerfile](images/ubi9/tar/Containerfile) | [context](images/ubi9/tar/context) |
-| ubuntu24-04 | 1.0.1 | linux/amd64, linux/arm64 | Ubuntu 24.04 base | [Containerfile](images/ubuntu24-04/Containerfile) | [context](images/ubuntu24-04/context) |
-| ubuntu24-04/curl | 1.0.1 | linux/amd64, linux/arm64 | Installs curl | [Containerfile](images/ubuntu24-04/curl/Containerfile) | [context](images/ubuntu24-04/curl/context) |
+| ubi9 | 1.0.2 | linux/amd64, linux/arm64 | Red Hat UBI 9.4 base | [Containerfile](images/ubi9/Containerfile) | [context](images/ubi9/context) |
+| ubi9/tar | 1.0.2 | linux/amd64, linux/arm64 | tar on ubi9 | [Containerfile](images/ubi9/tar/Containerfile) | [context](images/ubi9/tar/context) |
+| ubuntu24-04 | 1.0.2 | linux/amd64, linux/arm64 | Ubuntu 24.04 base | [Containerfile](images/ubuntu24-04/Containerfile) | [context](images/ubuntu24-04/context) |
+| ubuntu24-04/curl | 1.0.2 | linux/amd64, linux/arm64 | Installs curl | [Containerfile](images/ubuntu24-04/curl/Containerfile) | [context](images/ubuntu24-04/curl/context) |
 <!-- image-tree:end -->
 
 ## Prerequisites

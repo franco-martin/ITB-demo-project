@@ -39,8 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
@@ -59,8 +59,8 @@ jobs:
       stage3: ${{ steps.plan.outputs.stage3 }}
       stage3_manifest: ${{ steps.plan.outputs.stage3_manifest }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
@@ -104,7 +104,7 @@ jobs:
             cat plan.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: plan
           path: plan.json
@@ -129,7 +129,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage0) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build (the options below apply to every stage)
         # To pull a FROM image from another private registry too, add it to
         # "auths" in config.json with its own secrets.
@@ -171,7 +171,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage0_manifest) }}
     steps:
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.PUSH == 'true'
         with:
           registry: ghcr.io
@@ -196,7 +196,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage1) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         env:
           REGISTRY_USERNAME: ${{ github.actor }}
@@ -227,7 +227,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage1_manifest) }}
     steps:
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.PUSH == 'true'
         with:
           registry: ghcr.io
@@ -252,7 +252,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage2) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         env:
           REGISTRY_USERNAME: ${{ github.actor }}
@@ -283,7 +283,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage2_manifest) }}
     steps:
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.PUSH == 'true'
         with:
           registry: ghcr.io
@@ -308,7 +308,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage3) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         env:
           REGISTRY_USERNAME: ${{ github.actor }}
@@ -339,7 +339,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.stage3_manifest) }}
     steps:
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.PUSH == 'true'
         with:
           registry: ghcr.io
