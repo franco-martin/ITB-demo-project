@@ -1,0 +1,28 @@
+ubi9:
+  children:
+    curl:
+      children: {}
+      description: Installs curl
+      platforms:
+      - linux/amd64
+      - linux/arm64
+      version: 1.0.0
+  description: Red Hat UBI 9.4 base
+  platforms:
+  - linux/amd64
+  - linux/arm64
+  version: 1.0.0
+ubuntu24-04:
+  children:
+    curl:
+      children: {}
+      description: Installs curl
+      platforms:
+      - linux/amd64
+      - linux/arm64
+      version: 1.0.0
+  description: Ubuntu 24.04 base
+  platforms:
+  - linux/amd64
+  - linux/arm64
+  version: 1.0.0
